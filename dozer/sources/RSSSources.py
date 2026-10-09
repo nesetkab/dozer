@@ -1,8 +1,9 @@
 """Given an arbitrary RSS feed, get new posts from it"""
+
 import datetime
 import logging
 import re
-from time import mktime
+from calendar import timegm
 
 import aiohttp
 import discord
@@ -16,17 +17,20 @@ LOGGER = logging.getLogger()
 def clean_html(raw_html):
     """Clean all HTML tags.
     From https://stackoverflow.com/questions/9662346/python-code-to-remove-html-tags-from-a-string"""
-    cleanr = re.compile('<.*?>')
-    cleantext = re.sub(cleanr, '', raw_html)
+    cleanr = re.compile("<.*?>")
+    cleantext = re.sub(cleanr, "", raw_html)
     return cleantext
 
 
 class RSSSource(Source):
     """Given an arbitrary RSS feed, get new posts from it"""
+
     url: str = ""
     color = discord.colour.Color.blurple()
-    date_formats = ["%a, %d %b %Y %H:%M:%S %z",
-                    "%a, %d %b %Y %H:%M:%S %Z"]  # format for datetime.strptime()
+    date_formats = [
+        "%a, %d %b %Y %H:%M:%S %z",
+        "%a, %d %b %Y %H:%M:%S %Z",
+    ]  # format for datetime.strptime()
     base_url: str = ""
     read_more_str: str = "...\n Read More"
 
@@ -43,15 +47,10 @@ class RSSSource(Source):
         """Fetch the current posts in the feed, parse them for data and generate embeds/strings for them"""
         response = await self.fetch()
         items = self.parse(response)
-        new_posts = {
-            'source': {
-                'embed': [],
-                'plain': []
-            }
-        }
+        new_posts = {"source": {"embed": [], "plain": []}}
         for item in items:
-            new_posts['source']['embed'].append(self.generate_embed(item))
-            new_posts['source']['plain'].append(self.generate_plain_text(item))
+            new_posts["source"]["embed"].append(self.generate_embed(item))
+            new_posts["source"]["plain"].append(self.generate_plain_text(item))
         return new_posts
 
     async def fetch(self):
@@ -90,7 +89,6 @@ class RSSSource(Source):
 
         return desc
 
-
     def generate_embed(self, item):
         """Given a dictionary of data, generate a discord.Embed using that data"""
         embed = discord.Embed()
@@ -103,22 +101,36 @@ class RSSSource(Source):
 
         embed.add_field(name="Description", value=self.truncate_and_clean(item.summary))
 
-        embed.set_author(name=item.author)
+        # Discord will reject an embed with an empty author name.
+        # FTC qna entries have an empty author :c
+        author = item.get("author", "").strip()
+        if author:
+            embed.set_author(name=author[:256])
 
-        embed.timestamp = datetime.datetime.fromtimestamp(mktime(item.published_parsed))
+        # timegm  is better than mktime because mktime assumes local time and not UTC
+        published = item.get("published_parsed") or item.get("updated_parsed")
+        if published:
+            embed.timestamp = datetime.datetime.fromtimestamp(
+                timegm(published), tz=datetime.timezone.utc
+            )
 
         return embed
 
     def generate_plain_text(self, item):
         """Given a dictionary of data, generate a string using that data"""
-        return f"New Post from {self.full_name} from {item.author}:\n" \
-               f"{item.title}\n" \
-               f">>> {self.truncate_and_clean(item.summary)}\n" \
-               f"Read more at {item.link}"
+        author = item.get("author", "").strip()
+        from_author = f" from {author}" if author else ""
+        return (
+            f"New Post from {self.full_name}{from_author}:\n"
+            f"{item.title}\n"
+            f">>> {self.truncate_and_clean(item.summary)}\n"
+            f"Read more at {item.link}"
+        )
 
 
 class FRCBlogPosts(RSSSource):
     """Official blog posts from the FIRST Robotics Competition"""
+
     url: str = "https://community.firstinspires.org/topic/frc/rss.xml"
     base_url: str = "https://community.firstinspires.org/topic/frc"
     full_name = "FRC Blog Posts"
@@ -129,6 +141,7 @@ class FRCBlogPosts(RSSSource):
 
 class TBABlog(RSSSource):
     """Posts from The Blue Alliance's Blog"""
+
     url = "https://blog.thebluealliance.com/feed/"
     base_url = "https://blog.thebluealliance.com/"
     full_name = "The Blue Alliance Blog"
@@ -139,6 +152,7 @@ class TBABlog(RSSSource):
 
 class CDLatest(RSSSource):
     """Official blog posts from the FIRST Robotics Competition"""
+
     url = "https://www.chiefdelphi.com/latest.rss"
     base_url = "https://www.chiefdelphi.com/latest"
     full_name = "Chief Delphi"
@@ -149,6 +163,7 @@ class CDLatest(RSSSource):
 
 class FRCQA(RSSSource):
     """Answers from the official FIRST Robotics Competition Q&A system"""
+
     url = "https://frc-qa.firstinspires.org/rss/answers.rss"
     base_url = "https://frc-qa.firstinspires.org/"
     full_name = "FRC Q&A Answers"
@@ -159,6 +174,7 @@ class FRCQA(RSSSource):
 
 class FTCQA(RSSSource):
     """Answers from the official FIRST Tech Challenge Q&A system"""
+
     url = "https://ftc-qa.firstinspires.org/answers.atom"
     base_url = "https://game-qa.firstinspires.org"
     full_name = "FTC Q&A Answers"
@@ -169,6 +185,7 @@ class FTCQA(RSSSource):
 
 class FTCBlogPosts(RSSSource):
     """The official FTC Blogspot blog"""
+
     url = "https://community.firstinspires.org/topic/ftc/rss.xml"
     base_url = "https://community.firstinspires.org/topic/ftc"
     full_name = "FTC Blog Posts"
@@ -179,6 +196,7 @@ class FTCBlogPosts(RSSSource):
 
 class FTCForum(RSSSource):
     """The official FTC Forum posts"""
+
     url = "https://ftc-community.firstinspires.org/latest.rss"
     base_url = "https://ftc-community.firstinspires.org/"
     full_name = "FTC Forum Posts"
@@ -189,6 +207,7 @@ class FTCForum(RSSSource):
 
 class TestSource(RSSSource):
     """A source for testing. Make sure to disable this before committing."""
+
     url = "http://lorem-rss.herokuapp.com/feed?interval=1"
     base_url = "http://lorem-rss.herokuapp.com"
     full_name = "Test Source"
